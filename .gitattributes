@@ -17,3 +17,9 @@
 /UPGRADING.md       export-ignore
 /phpstan.neon.dist  export-ignore
 /phpstan-baseline.neon  export-ignore
+/bin                export-ignore
+/phpunit.xml        export-ignore
+/phpmd-ruleset.xml  export-ignore
+/pint.json          export-ignore
+/rector.php         export-ignore
+/CHANGELOG.md       export-ignore

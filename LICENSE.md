@@ -1,5 +1,6 @@
 The MIT License (MIT)
 
+Copyright (c) Sebastiaan (Kyzegs)
 Copyright (c) LaravelFreelancerNL <info@laravel-freelancer.nl>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy

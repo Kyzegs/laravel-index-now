@@ -2,6 +2,39 @@
 
 All notable changes to `laravel-index-now` will be documented in this file.
 
+## v1.0.0 - Unreleased
+
+First release as `kyzegs/laravel-index-now`, a rewrite of `laravel-freelancer-nl/laravel-index-now` v2.1.0. See the upgrade notes in the README.
+
+### Added
+
+- `IndexNow::queue()` with configurable connection, queue, tries, backoff, after-commit and debounce; jobs are unique per URL set regardless of order.
+- `IndexNow::defer()`: everything deferred during a request, job or command is queued as one job when it ends.
+- Multiple hosts (one request per host), multiple endpoints, automatic batching above `batch_size` (max 10,000).
+- Relative paths resolve against `app.url`; fragments are stripped and duplicates removed.
+- Typed exceptions for 403, 422 and 429 (with `retryAfter()`), connection errors and bad configuration.
+- `UrlsSubmitted`, `SubmissionFailed` and `SubmissionSkipped` events; failure and skip logging with a configurable channel.
+- HTTP timeouts, in-request retries, user agent and an `IndexNow::configureHttpUsing()` hook.
+- Key route serving `{key_location}{key}.txt`, `index-now:publish-key`, `index-now:key --write-env/--file/--force`.
+- `index-now:submit` for URLs, files and sitemaps (indexes and gzip included), with `--sync` and `--dry-run`.
+- `InteractsWithIndexNow` Eloquent trait.
+- `IndexNow::fake()` with assertions.
+- `about` command section.
+
+### Fixed
+
+- Refused submissions were reported as successes: responses were never checked, there was no timeout and the queued job never retried.
+- A missing key was sent as `key=""` instead of skipping.
+- Generating a key always replaced the key file with a new random key, which broke deploys that rebuild `public/`.
+- The facade advertised a non-existent `getKeyFileName()` method and the wrong `submit()` return type.
+
+### Changed
+
+- Config keys are snake_case; `production-env` is replaced by `enabled`, `search-engine` by `endpoints`, `delay` by `debounce`.
+- Every submission is a JSON POST.
+- Dropped the `nunomaduro/termwind`, `guzzlehttp/guzzle` (now through `illuminate/http`) and `spatie/laravel-package-tools` dependencies.
+- PHPStan runs at level max without excluded files.
+
 ## v2.1.0 - 2026-03-21
 
 ### Added

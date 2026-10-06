@@ -2,172 +2,242 @@
 
 declare(strict_types=1);
 
-namespace LaravelFreelancerNL\LaravelIndexNow;
+namespace Kyzegs\IndexNow;
 
-use Exception;
+use Closure;
 use Illuminate\Foundation\Bus\PendingDispatch;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
-use Illuminate\Support\Facades\File;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
-use LaravelFreelancerNL\LaravelIndexNow\Exceptions\KeyFileDirectoryMissing;
-use LaravelFreelancerNL\LaravelIndexNow\Exceptions\TooManyUrlsException;
-use LaravelFreelancerNL\LaravelIndexNow\Jobs\IndexNowSubmitJob;
+use Kyzegs\IndexNow\Exceptions\ForeignUrls;
+use Kyzegs\IndexNow\Exceptions\InvalidConfiguration;
+use Kyzegs\IndexNow\Exceptions\RequestFailed;
+use Kyzegs\IndexNow\Jobs\SubmitUrls;
+use Kyzegs\IndexNow\Support\Sender;
+use Kyzegs\IndexNow\Support\Settings;
+use Kyzegs\IndexNow\Support\SkipReason;
+use Kyzegs\IndexNow\Support\SubmissionMode;
+use Kyzegs\IndexNow\Support\UrlList;
 
+use function Illuminate\Support\defer;
+
+/**
+ * Bound as a scoped instance: the defer() buffer belongs to one request, job
+ * or command and is dropped with it, which keeps Octane workers clean.
+ *
+ * @SuppressWarnings("PHPMD.TooManyPublicMethods")
+ */
 class IndexNow
 {
-    /**
-     * @throws KeyFileDirectoryMissing
-     */
-    public function generateKey(): string
-    {
-        $key = Str::uuid()->toString();
-        $filename = $this->getKeyFilePath($key);
+    /** @var array<string, true> */
+    protected array $deferred = [];
 
-        if (!file_exists(public_path(dirname($filename)))) {
-            throw new KeyFileDirectoryMissing();
-        }
-
-        File::put(public_path() . '/' . $filename, $key);
-
-        return $key;
-    }
+    public function __construct(
+        protected Settings $settings,
+        protected Sender $sender,
+    ) {}
 
     /**
-     * @param  string|string[]  $url
+     * Customise the HTTP client used for every submission (headers, proxy,
+     * middleware…). Call once from a service provider's boot().
      *
-     * @throws Exception
+     * @param  (Closure(PendingRequest): (PendingRequest|null))|null  $callback
      */
-    public function submit(string|array $url): Response|false
+    public static function configureHttpUsing(?Closure $callback): void
     {
-        $productionEnvironment = config('index-now.production-env');
-
-        if ($productionEnvironment !== false && config('app.env') !== $productionEnvironment) {
-            $this->logFailedAttempt($url);
-
-            return false;
-        }
-
-        if (is_string($url)) {
-            return $this->submitUrl($url);
-        }
-
-        return $this->submitUrls($url);
+        Sender::configureHttpUsing($callback);
     }
 
     /**
-     * @param  string|string[]  $url
+     * Send the URLs now. Returns one response per request made (hosts ×
+     * batches × endpoints) and an empty list when the submission was skipped.
      *
-     * @throws Exception
-     */
-    public function delaySubmission(string|array $url, ?int $delayInSeconds = null): PendingDispatch
-    {
-        $delayInSeconds ??= (int) config('index-now.delay');
-
-        return IndexNowSubmitJob::dispatch($url)->delay(now()->addSeconds($delayInSeconds));
-    }
-
-    /**
-     * @param  string|string[]  $url
-     */
-    protected function logFailedAttempt(string|array $url): void
-    {
-        if (config('index-now.log-failed-submits') === false) {
-            return;
-        }
-
-        Log::info(
-            'IndexNow: page submissions are only sent in production environments.',
-            ['url' => $url],
-        );
-    }
-
-    /**
-     * @throws Exception
-     */
-    protected function submitUrl(string $url): Response
-    {
-        $targetUrl = $this->generateTargetUrl();
-        $queryData = $this->getQueryData();
-        $queryData['url'] = $url;
-
-        return Http::get($targetUrl, $queryData);
-    }
-
-    /**
-     * @param  string[]  $urls
+     * @param  string|iterable<string>  $urls
+     * @return list<Response>
      *
-     * @throws TooManyUrlsException
+     * @throws RequestFailed when an endpoint refuses a batch (after every endpoint was tried)
      */
-    protected function submitUrls(array $urls): Response
+    public function submit(string|iterable $urls): array
     {
-        $targetUrl = $this->generateTargetUrl();
-        $queryData = $this->getQueryData();
-        $queryData['host'] = config('index-now.host');
-        $queryData['urlList'] = $this->prepareUrls($urls);
+        $responses = [];
+        $failure = null;
+        $urls = $this->sendable(UrlList::normalise($urls, $this->settings->root()));
 
-        return Http::post($targetUrl, $queryData);
-    }
-
-    protected function generateTargetUrl(): string
-    {
-        $searchEngineDomain = config('index-now.search-engine');
-
-        return 'https://' . $searchEngineDomain . '/indexnow';
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    protected function getQueryData(): array
-    {
-        $queryParameters = [];
-
-        $queryParameters['key'] = config('index-now.key');
-        $keyLocationUrl = $this->getKeyLocationUrl();
-        if ($keyLocationUrl !== null) {
-            $queryParameters['keyLocation'] = $keyLocationUrl;
+        foreach (UrlList::groupByHost($urls) as $host => $hostUrls) {
+            foreach (array_chunk($hostUrls, $this->settings->batchSize()) as $batch) {
+                foreach ($this->settings->endpoints() as $endpoint) {
+                    try {
+                        $responses[] = $this->sender->send($endpoint, $host, UrlList::scheme($batch[0]), $batch);
+                    } catch (RequestFailed $exception) {
+                        $failure ??= $exception;
+                    }
+                }
+            }
         }
 
-        return $queryParameters;
+        return $failure === null ? $responses : throw $failure;
     }
 
     /**
-     * @param  string[]  $urls
-     * @return string[]
+     * Queue the URLs. Null when the submission is skipped up front (disabled,
+     * no key, nothing left to send), so no job is queued for nothing.
      *
-     * @throws TooManyUrlsException
+     * @param  string|iterable<string>  $urls
+     * @param  int|null  $delay  seconds; null uses index-now.debounce
      */
-    protected function prepareUrls(array $urls): array
+    public function queue(string|iterable $urls, ?int $delay = null): ?PendingDispatch
     {
-        if (count($urls) > 10000) {
-            throw new TooManyUrlsException();
-        }
+        $urls = $this->sendable(UrlList::normalise($urls, $this->settings->root()));
 
-        return $urls;
-    }
-
-    protected function getKeyFilePath(string $key): string
-    {
-        return (string) config('index-now.key-location') . $key . '.txt';
-    }
-
-    protected function getKeyLocationUrl(): ?string
-    {
-        $key = config('index-now.key');
-        $keyLocation = config('index-now.key-location');
-
-        if (!is_string($key) || $key === '' || !is_string($keyLocation) || $keyLocation === '') {
+        if ($urls === []) {
             return null;
         }
 
-        $appUrl = rtrim((string) config('app.url', ''), '/');
+        $delay = max(0, $delay ?? $this->settings->int('index-now.debounce', 0));
+        $backoff = array_map(intval(...), $this->settings->strings('index-now.queue.backoff'));
 
-        if ($appUrl === '') {
-            $appUrl = 'https://' . config('index-now.host');
+        $pending = SubmitUrls::dispatch($urls, $this->settings->int('index-now.queue.tries', 3), $backoff, $delay)
+            ->onConnection($this->settings->string('index-now.queue.connection'))
+            ->onQueue($this->settings->string('index-now.queue.name'));
+
+        if ($delay > 0) {
+            $pending->delay($delay);
         }
 
-        return $appUrl . '/' . ltrim($this->getKeyFilePath($key), '/');
+        return $this->settings->bool('index-now.queue.after_commit', true)
+            ? $pending->afterCommit()
+            : $pending->beforeCommit();
+    }
+
+    /**
+     * Collect the URLs and queue a single job for everything collected once
+     * the current request, job or command has finished.
+     *
+     * @param  string|iterable<string>  $urls
+     */
+    public function defer(string|iterable $urls): void
+    {
+        foreach (UrlList::normalise($urls, $this->settings->root()) as $url) {
+            $this->deferred[$url] = true;
+        }
+
+        if ($this->deferred !== []) {
+            defer(fn() => $this->flush(), 'index-now:' . spl_object_id($this), always: true);
+        }
+    }
+
+    /**
+     * Queue whatever defer() collected so far. Runs on its own after the
+     * request; call it directly where no deferred callbacks run.
+     */
+    public function flush(): ?PendingDispatch
+    {
+        $urls = array_keys($this->deferred);
+        $this->deferred = [];
+
+        return $urls === [] ? null : $this->queue($urls);
+    }
+
+    /**
+     * @param  string|iterable<string>  $urls
+     */
+    public function submitUsing(SubmissionMode $mode, string|iterable $urls): void
+    {
+        match ($mode) {
+            SubmissionMode::Sync => $this->submit($urls),
+            SubmissionMode::Queue => $this->queue($urls),
+            SubmissionMode::Defer => $this->defer($urls),
+        };
+    }
+
+    public function isEnabled(): bool
+    {
+        return $this->settings->enabled();
+    }
+
+    public function key(): ?string
+    {
+        return $this->settings->key();
+    }
+
+    public static function isValidKey(string $key): bool
+    {
+        return Settings::isValidKey($key);
+    }
+
+    /**
+     * Path of the key file below the public root, e.g. `indexnow/{key}.txt`.
+     */
+    public function keyFilePath(?string $key = null): ?string
+    {
+        return $this->settings->keyFilePath($key);
+    }
+
+    public function keyLocation(string $host, string $scheme = 'https'): ?string
+    {
+        $path = $this->keyFilePath();
+
+        return $path === null ? null : "{$scheme}://{$host}/{$path}";
+    }
+
+    public function host(): string
+    {
+        return $this->settings->host();
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function hosts(): array
+    {
+        return $this->settings->hosts();
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function endpoints(): array
+    {
+        return $this->settings->endpoints();
+    }
+
+    /**
+     * Drops everything that must not be sent and reports why.
+     *
+     * @param  list<string>  $urls
+     * @return list<string>
+     */
+    protected function sendable(array $urls): array
+    {
+        $reason = match (true) {
+            $urls === [] => SkipReason::NoUrls,
+            !$this->settings->enabled() => SkipReason::Disabled,
+            $this->settings->key() === null => SkipReason::MissingKey,
+            default => null,
+        };
+
+        if ($reason !== null) {
+            $this->sender->skipped($urls, $reason);
+
+            return [];
+        }
+
+        if (!Settings::isValidKey((string) $this->settings->key())) {
+            throw InvalidConfiguration::invalidKey();
+        }
+
+        $hosts = $this->settings->hosts();
+        $foreign = array_values(array_filter($urls, fn(string $url): bool => !in_array(UrlList::host($url), $hosts, true)));
+
+        if ($foreign === []) {
+            return $urls;
+        }
+
+        if ($this->settings->throwOnForeignUrls()) {
+            throw new ForeignUrls($foreign);
+        }
+
+        $this->sender->skipped($foreign, SkipReason::ForeignHost);
+
+        return array_values(array_diff($urls, $foreign));
     }
 }

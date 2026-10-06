@@ -2,24 +2,48 @@
 
 declare(strict_types=1);
 
-namespace LaravelFreelancerNL\LaravelIndexNow\Facades;
+namespace Kyzegs\IndexNow\Facades;
 
-use Illuminate\Foundation\Bus\PendingDispatch;
-use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Facade;
+use Kyzegs\IndexNow\IndexNow as IndexNowService;
+use Kyzegs\IndexNow\Testing\IndexNowFake;
 
 /**
- * @see \LaravelFreelancerNL\LaravelIndexNow\IndexNow
+ * @method static list<\Illuminate\Http\Client\Response> submit(string|iterable<string> $urls)
+ * @method static \Illuminate\Foundation\Bus\PendingDispatch|null queue(string|iterable<string> $urls, int|null $delay = null)
+ * @method static void defer(string|iterable<string> $urls)
+ * @method static \Illuminate\Foundation\Bus\PendingDispatch|null flush()
+ * @method static void submitUsing(\Kyzegs\IndexNow\Support\SubmissionMode $mode, string|iterable<string> $urls)
+ * @method static bool isEnabled()
+ * @method static string|null key()
+ * @method static bool isValidKey(string $key)
+ * @method static string|null keyFilePath(string|null $key = null)
+ * @method static string|null keyLocation(string $host, string $scheme = 'https')
+ * @method static string host()
+ * @method static list<string> hosts()
+ * @method static list<string> endpoints()
+ * @method static void configureHttpUsing(\Closure|null $callback)
  *
- * @method string generateKey()
- * @method string getKeyFileName()
- * @method Response submit(string|array $url)
- * @method PendingDispatch delaySubmission(string|array $url, int $delayInSeconds = null)
+ * @see IndexNowService
  */
 class IndexNow extends Facade
 {
-    protected static function getFacadeAccessor()
+    /**
+     * Record submissions instead of sending them.
+     */
+    public static function fake(): IndexNowFake
     {
-        return 'index-now';
+        $fake = static::getFacadeApplication()?->make(IndexNowFake::class);
+
+        assert($fake instanceof IndexNowFake);
+
+        static::swap($fake);
+
+        return $fake;
+    }
+
+    protected static function getFacadeAccessor(): string
+    {
+        return IndexNowService::class;
     }
 }

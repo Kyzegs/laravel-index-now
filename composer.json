@@ -1,50 +1,58 @@
 {
-    "name": "laravel-freelancer-nl/laravel-index-now",
-    "description": "Alert search engines of content changes. ",
+    "name": "kyzegs/laravel-index-now",
+    "description": "Tell search engines about changed pages through the IndexNow protocol.",
     "keywords": [
         "indexnow",
         "laravel",
         "seo",
-        "search engines"
+        "search engines",
+        "bing",
+        "yandex"
     ],
-    "homepage": "https://github.com/LaravelFreelancerNL/laravel-index-now",
+    "homepage": "https://github.com/Kyzegs/laravel-index-now",
     "license": "MIT",
     "authors": [
         {
+            "name": "Sebastiaan",
+            "homepage": "https://kyzegs.com",
+            "role": "Developer"
+        },
+        {
             "name": "Bas",
             "email": "info@laravel-freelancer.nl",
-            "role": "Developer"
+            "role": "Original author"
         }
     ],
     "require": {
-        "php": "^8.1",
-        "guzzlehttp/guzzle": "^7.4",
-        "nunomaduro/termwind": "^2.0",
-        "spatie/laravel-package-tools": "^1.9.2"
+        "php": "^8.2",
+        "ext-simplexml": "*",
+        "illuminate/console": "^11.0 || ^12.0 || ^13.0",
+        "illuminate/contracts": "^11.0 || ^12.0 || ^13.0",
+        "illuminate/database": "^11.0 || ^12.0 || ^13.0",
+        "illuminate/http": "^11.0 || ^12.0 || ^13.0",
+        "illuminate/log": "^11.0 || ^12.0 || ^13.0",
+        "illuminate/queue": "^11.0 || ^12.0 || ^13.0",
+        "illuminate/routing": "^11.0 || ^12.0 || ^13.0",
+        "illuminate/support": "^11.23 || ^12.0 || ^13.0"
     },
     "require-dev": {
         "larastan/larastan": "^3.1",
-        "laravel/framework": "^11.0 || ^12.0 || ^13.0",
         "laravel/pint": "^1.13",
         "orchestra/testbench": "^9.0 || ^10.0 || ^11.0",
         "pestphp/pest": "^3.0 || ^4.0",
         "phpmd/phpmd": "^2.14",
-        "phpstan/extension-installer": "^1.1",
-        "phpstan/phpstan": "^1.8 || ^2.1",
-        "phpstan/phpstan-deprecation-rules": "^1.0 || ^2.0",
-        "phpstan/phpstan-phpunit": "^1.0 || ^2.0",
-        "rector/rector": "^2.3",
-        "spatie/laravel-ray": "^1.26",
-        "timacdonald/log-fake": "^2.2"
+        "phpstan/phpstan": "^2.1",
+        "phpstan/phpstan-deprecation-rules": "^2.0",
+        "rector/rector": "^2.3"
     },
     "autoload": {
         "psr-4": {
-            "LaravelFreelancerNL\\LaravelIndexNow\\": "src"
+            "Kyzegs\\IndexNow\\": "src"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "LaravelFreelancerNL\\LaravelIndexNow\\Tests\\": "tests"
+            "Kyzegs\\IndexNow\\Tests\\": "tests"
         }
     },
     "scripts": {
@@ -58,17 +66,16 @@
     "config": {
         "sort-packages": true,
         "allow-plugins": {
-            "pestphp/pest-plugin": true,
-            "phpstan/extension-installer": true
+            "pestphp/pest-plugin": true
         }
     },
     "extra": {
         "laravel": {
             "providers": [
-                "LaravelFreelancerNL\\LaravelIndexNow\\IndexNowServiceProvider"
+                "Kyzegs\\IndexNow\\IndexNowServiceProvider"
             ],
             "aliases": {
-                "IndexNow": "LaravelFreelancerNL\\LaravelIndexNow\\Facades\\IndexNow"
+                "IndexNow": "Kyzegs\\IndexNow\\Facades\\IndexNow"
             }
         }
     },

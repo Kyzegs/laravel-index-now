@@ -1,162 +1,267 @@
-# Laravel IndexNow - Submit webpage updates to search engines
+# Laravel IndexNow
 
-[![Latest Version on Packagist](https://img.shields.io/packagist/v/laravel-freelancer-nl/laravel-index-now.svg?style=flat)](https://packagist.org/packages/laravel-freelancer-nl/laravel-index-now)
-[![Code Quality](https://img.shields.io/github/actions/workflow/status/LaravelFreelancerNL/laravel-index-now/quality-assurance.yml?branch=next&label=quality%20assurance)](https://github.com/LaravelFreelancerNL/laravel-index-now/actions/workflows/quality-assurance.yml?query=branch%3Anext)
-[![Tests](https://img.shields.io/github/actions/workflow/status/LaravelFreelancerNL/laravel-index-now/run-tests.yml?branch=next&label=tests)](https://github.com/LaravelFreelancerNL/laravel-index-now/actions/workflows/run-tests.yml?query=branch%3Anext)
-[![Code Coverage](https://img.shields.io/github/actions/workflow/status/LaravelFreelancerNL/laravel-index-now/coverage.yml?branch=next&label=coverage)](https://github.com/LaravelFreelancerNL/laravel-index-now/actions/workflows/coverage.yml?query=branch%3Anext)
-[![License](https://img.shields.io/github/license/LaravelFreelancerNL/laravel-index-now)](https://github.com/LaravelFreelancerNL/laravel-index-now/blob/next/LICENSE.md)
-[![Total Downloads](https://img.shields.io/packagist/dt/laravel-freelancer-nl/laravel-index-now.svg?style=flat)](https://packagist.org/packages/laravel-freelancer-nl/laravel-index-now)
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/kyzegs/laravel-index-now.svg?style=flat)](https://packagist.org/packages/kyzegs/laravel-index-now)
+[![Tests](https://img.shields.io/github/actions/workflow/status/Kyzegs/laravel-index-now/run-tests.yml?branch=main&label=tests)](https://github.com/Kyzegs/laravel-index-now/actions/workflows/run-tests.yml?query=branch%3Amain)
+[![Quality assurance](https://img.shields.io/github/actions/workflow/status/Kyzegs/laravel-index-now/quality-assurance.yml?branch=main&label=quality%20assurance)](https://github.com/Kyzegs/laravel-index-now/actions/workflows/quality-assurance.yml?query=branch%3Amain)
+[![License](https://img.shields.io/github/license/Kyzegs/laravel-index-now)](LICENSE.md)
 
-This packages provides a wrapper to use the IndexNow api in Laravel. This makes indexing new webpages in (some) search 
-engines easy and fast. It makes for a nice little addition to sitemaps.
+Tell search engines about changed pages the moment they change, through the
+[IndexNow](https://www.indexnow.org) protocol. One submission reaches every
+participating engine (Bing, Yandex, Seznam, Naver, Yep…). Google does not take
+part, so keep your sitemap.
 
-[IndexNow](https://www.indexnow.org) is an API created by Microsoft Bing & Yandex to allow you to submit page changes
-to their search engines quickly.  A submission to one search engine will automatically pass the submission on to the 
-others.
+- Sync, queued or **deferred** submissions: every URL touched during a request, job or command goes out as one job when it ends.
+- **Debouncing**: a burst of edits to a page sends one ping.
+- Failures are never silent: typed exceptions, queue retries with backoff, `Retry-After` honoured on 429.
+- Key file served by a route, or written on deploy, from one `INDEXNOW_KEY`.
+- Multiple hosts and endpoints, automatic batching past the 10,000-URL cap.
+- An Eloquent trait that submits old and new URLs when a slug changes or a page is unpublished.
+- `index-now:submit` for URLs, files and whole sitemaps.
+- Events for every outcome and `IndexNow::fake()` for your tests.
 
-At the time of this writing Google is considering supporting the API 
-and [has announced it will be testing it](https://www.searchenginejournal.com/google-will-be-testing-indexnow/426602/).
+Requires PHP 8.2+ and Laravel 11.23+, 12 or 13.
 
 ## Installation
 
-You can install the package via composer:
+```bash
+composer require kyzegs/laravel-index-now
+php artisan index-now:key --write-env
+```
+
+That writes a random `INDEXNOW_KEY` to `.env`. Submissions are only sent when
+`INDEXNOW_ENABLED` is true, which by default means `APP_ENV=production`.
+
+Publish the config to change anything else:
 
 ```bash
-composer require laravel-freelancer-nl/laravel-index-now
+php artisan vendor:publish --tag=index-now-config
 ```
 
-You can publish the config file with:
-```bash
-php artisan vendor:publish --tag="index-now-config"
-```
+## The key file
 
-This is the contents of the published config file:
+The engines verify a submission by fetching `https://your-host/{key}.txt`. The
+package answers that URL with a route, so nothing has to exist on disk.
 
-```php
-return [
-    'host' => parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST) ?? 'localhost',
-    'key' => env('INDEXNOW_KEY', ''),
-    'key-location' => env('INDEXNOW_KEY_LOCATION', ''),
-    'log-failed-submits' => env('INDEXNOW_LOG_FAILED_SUBMITS', true),
-    'production-env' => env('INDEXNOW_PRODUCTION_ENV', 'production'),
-    'search-engine' => env('INDEXNOW_SEARCH_ENGINE', 'api.indexnow.org'),
-    'delay' => env('INDEXNOW_SUBMIT_DELAY', 600),
-];
-```
-- _host_: the hostname for which you will submit pages to the search engine, without scheme or path
-- _key_: the unique key for this domain (you will generate one in the next step)
-- _key-location_: the directory and/or prefix to the key file within your public site; the package derives the public
-  `keyLocation` URL from `APP_URL`, or falls back to `https://<host>` when `APP_URL` is empty
-- _log-failed-submits_: whether to log skipped submit attempts when the current environment does not match
-  `_production-env_`
-- _production-env_: the name of the production environment; 
-- _search-engine_: the domain of the specific search engine you wish to submit too. 
-- _delay_: the delay in seconds for delayed page submissions.
-
-### Generate a new key
-The IndexNow API matches the request key to a key file within the host domain. 
-To generate the keyfile you use the following artisan command:
+When your web server answers `*.txt` itself (nginx `try_files`, a CDN, static
+hosting), the route is never reached. Write the file on deploy instead:
 
 ```bash
-php artisan index-now:generate-key
+php artisan index-now:publish-key   # writes public/{key_location}{key}.txt from INDEXNOW_KEY
 ```
-This will create a keyfile in the public_dir() of your project and output the key.
-Copy the displayed key and place it in your .env file.
 
-If you've set a key location in the config it will be prefixed to the file, and the package will derive the public
-`keyLocation` URL from your `APP_URL`, or fall back to `https://<host>` when `APP_URL` is empty.
-
-Running this command multiple times will generate a new key and key file.
-
-### Only submit pages for your production environment
-You probably don't want to submit pages in any environment other than production. 
-
-By default, this package assumes that your production environment is called 'production' and will only submit when it 
-matches the configured name in the package.
-
-In the case of an environment mismatch it will log a submission 'attempt' instead of actually submitting the page to 
-the search engines.
-
-If you use an alternative name for your production environment you can set INDEXNOW_PRODUCTION_ENV in your .env 
-to match. 
-
-You can disable this by setting INDEXNOW_PRODUCTION_ENV to false.
-
-If you want to keep the environment check but suppress those log entries, set INDEXNOW_LOG_FAILED_SUBMITS to false.
+and set `INDEXNOW_KEY_ROUTE=false`. Rotating the key is
+`php artisan index-now:key --write-env --force` followed by a deploy.
 
 ## Usage
-You can submit one or more pages per request by calling the facade and passing the url(s) to the submit method.
-
-Note that the urls must be fully qualified without query parameters and without a fragment.
-
-### Submit a single page
-```php
-use LaravelFreelancerNL\LaravelIndexNow\Facades\IndexNow;
-
-IndexNow::submit('https://dejacht.nl/jagen');
-```
-
-### Submit a multiple pages
-To submit multiple pages at once just add an array of urls.
 
 ```php
-use LaravelFreelancerNL\LaravelIndexNow\Facades\IndexNow;
+use Kyzegs\IndexNow\Facades\IndexNow;
 
-IndexNow::submit([
-    'https://dejacht.nl',
-    'https://dejacht.nl/fotoquiz/',
-    'https://dejacht.nl/jagen/',
-    'https://dejacht.nl/jachtvideos/',
-]);
+IndexNow::submit('https://example.com/blog/hello');   // now, in this process
+IndexNow::queue(['/blog/hello', '/blog']);            // a queued job
+IndexNow::queue('/blog/hello', delay: 600);           // a queued job, sent in 10 minutes
+IndexNow::defer('/blog/hello');                       // one job for everything, after the response
 ```
 
-### Prevent spam: delay page submissions
-You can delay page submissions by using the delaySubmission method.
-This dispatches the IndexNowSubmitJob with a delay in seconds as configured. The job is unique by payload,
-so multiple submissions of the same urls won't push a job to the queue before the current one is handled.
+Paths are resolved against `app.url`; fragments are dropped and duplicates
+removed. Prefer injecting `Kyzegs\IndexNow\IndexNow` over the facade in your
+own classes; the API is the same.
+
+`submit()` returns one `Illuminate\Http\Client\Response` per request made and
+an empty array when the submission was skipped. `queue()` returns the
+`PendingDispatch`, or `null` when nothing would be sent.
+
+### Which mode to use
+
+| Mode | Use it when |
+|---|---|
+| `defer` | A request or job may touch the same pages several times: everything is sent once, in one job, when it ends. Works in HTTP requests, queued jobs and Artisan commands. |
+| `queue` | You want a job now. With `INDEXNOW_DEBOUNCE` (or `delay:`), identical URL sets queued while one is waiting are dropped. |
+| `submit` | You are already in a job or a command and want the result or the exception. |
+
+### Debouncing
+
+```dotenv
+INDEXNOW_DEBOUNCE=600
+```
+
+Queued submissions then wait 10 minutes. The job is unique per URL set (order
+does not matter), so while it waits, queueing the same URLs again is a no-op.
+Uniqueness needs a cache store that supports locks.
+
+## Eloquent
 
 ```php
-use LaravelFreelancerNL\LaravelIndexNow\Facades\IndexNow;
+use Kyzegs\IndexNow\Concerns\InteractsWithIndexNow;
+use Kyzegs\IndexNow\Support\SubmissionMode;
 
-IndexNow::delaySubmission('https://devechtschool.nl');
+class Post extends Model
+{
+    use InteractsWithIndexNow;
+
+    public function indexNowUrls(): string|array
+    {
+        return route('posts.show', $this);
+    }
+
+    // Optional hooks, with their defaults:
+
+    public function shouldSubmitToIndexNow(): bool
+    {
+        return true;                       // e.g. $this->published && ! $this->noindex
+    }
+
+    public function indexNowAttributes(): ?array
+    {
+        return null;                       // null = any change except timestamps
+    }
+
+    public function indexNowMode(): SubmissionMode
+    {
+        return SubmissionMode::Defer;
+    }
+}
 ```
 
-You can override the configured default delay by adding your own.
+| Event | Submitted |
+|---|---|
+| created | the URLs, if `shouldSubmitToIndexNow()` |
+| updated | the new URLs if the model qualifies now, **and** the old URLs if it qualified before. A changed slug sends both; an unpublished page is sent so the engines see the 404 or noindex. |
+| deleted | the URLs, if the model qualified |
+
+## Artisan
+
+```bash
+php artisan index-now:submit https://example.com/a /b       # queue these
+php artisan index-now:submit --sitemap=https://example.com/sitemap.xml
+php artisan index-now:submit --file=urls.txt --sync         # one URL per line, # comments allowed
+php artisan index-now:submit --sitemap=… --dry-run          # list, do not send
+php artisan index-now:key [--write-env] [--file] [--force]
+php artisan index-now:publish-key
+php artisan about --only=indexnow
+```
+
+`--sitemap` follows sitemap indexes, reads gzipped sitemaps and can be given
+more than once.
+
+## Configuration
+
+Every option has an environment variable.
+
+| Option | Env | Default | |
+|---|---|---|---|
+| `enabled` | `INDEXNOW_ENABLED` | `APP_ENV === 'production'` | Off = every submission is skipped. |
+| `key` | `INDEXNOW_KEY` | – | 8–128 of `a-z A-Z 0-9 -`. Blank = skipped. |
+| `key_location` | `INDEXNOW_KEY_LOCATION` | `''` | `indexnow/` → `/indexnow/{key}.txt`; `indexnow-` → `/indexnow-{key}.txt`. |
+| `key_route` | `INDEXNOW_KEY_ROUTE` | `true` | Serve the key file through a route (`index-now.key`). |
+| `host` | `INDEXNOW_HOST` | host of `app.url` | |
+| `hosts` | `INDEXNOW_HOSTS` | – | More hosts you serve, comma-separated. One request per host. |
+| `foreign_urls` | `INDEXNOW_FOREIGN_URLS` | `skip` | `skip` or `throw` for URLs on other hosts. |
+| `endpoints` | `INDEXNOW_ENDPOINTS` | `https://api.indexnow.org/indexnow` | Comma-separated; each batch goes to each. |
+| `batch_size` | `INDEXNOW_BATCH_SIZE` | `10000` | URLs per request, capped at the protocol's 10,000. |
+| `http.timeout` | `INDEXNOW_TIMEOUT` | `10` | Seconds. |
+| `http.connect_timeout` | `INDEXNOW_CONNECT_TIMEOUT` | `5` | Seconds. |
+| `http.retry.times` | `INDEXNOW_RETRY_TIMES` | `0` | In-request retries on connection errors and 5xx. |
+| `http.retry.sleep` | `INDEXNOW_RETRY_SLEEP` | `100` | Milliseconds. |
+| `http.user_agent` | `INDEXNOW_USER_AGENT` | – | |
+| `queue.connection` | `INDEXNOW_QUEUE_CONNECTION` | default | |
+| `queue.name` | `INDEXNOW_QUEUE` | default | |
+| `queue.tries` | `INDEXNOW_TRIES` | `3` | |
+| `queue.backoff` | `INDEXNOW_BACKOFF` | `60,300,900` | Seconds between attempts. |
+| `queue.after_commit` | `INDEXNOW_AFTER_COMMIT` | `true` | Dispatch after open DB transactions commit. |
+| `debounce` | `INDEXNOW_DEBOUNCE` | `0` | Seconds a queued submission waits. |
+| `log.channel` | `INDEXNOW_LOG_CHANNEL` | default | |
+| `log.skipped` | `INDEXNOW_LOG_SKIPPED` | `true` | Debug-level line per skipped submission. |
+| `log.failed` | `INDEXNOW_LOG_FAILED` | `true` | Error-level line per refused request. |
+
+Anything the config does not cover, such as proxies, headers or Guzzle
+middleware, goes through the HTTP client hook, typically in a service
+provider's `boot()`:
+
 ```php
-use LaravelFreelancerNL\LaravelIndexNow\Facades\IndexNow;
+use Illuminate\Http\Client\PendingRequest;
+use Kyzegs\IndexNow\IndexNow;
 
-IndexNow::delaySubmission('https://devechtschool.nl', 100);
+IndexNow::configureHttpUsing(fn (PendingRequest $request) => $request->withOptions(['proxy' => 'http://proxy:8080']));
 ```
 
-#### When to delay submits
-It isn't uncommon for people to make additional edits after creating or updating a page. On these actions it is a good idea to delay
-the submission.
+## Errors
 
-When deleting pages you can just submit the urls immediately.
+All exceptions extend `Kyzegs\IndexNow\Exceptions\IndexNowException`.
 
-## Testing
+| Exception | When |
+|---|---|
+| `InvalidKey` | 403: the key file is missing, unreachable or different. |
+| `UrlsRejected` | 422: URLs do not belong to the host. |
+| `RateLimited` | 429. `retryAfter()` reads the header; queued jobs are released for that long. |
+| `RequestFailed` | Any other non-2xx or a connection error. The base of the three above; carries `endpoint`, `urls` and `response`. |
+| `ForeignUrls` | URLs on unknown hosts with `foreign_urls=throw`. |
+| `InvalidConfiguration` | Malformed key, no host, no endpoints. |
+
+200 and 202 (received, key validation pending) count as success. With several
+endpoints, every endpoint is tried before the first failure is thrown.
+
+## Events
+
+| Event | Properties |
+|---|---|
+| `Events\UrlsSubmitted` | `host`, `endpoint`, `urls`, `response` |
+| `Events\SubmissionFailed` | `host`, `endpoint`, `urls`, `exception` |
+| `Events\SubmissionSkipped` | `urls`, `reason` (`SkipReason::Disabled`, `MissingKey`, `ForeignHost`, `NoUrls`) |
+
+## Testing your application
+
+```php
+use Kyzegs\IndexNow\Facades\IndexNow;
+use Kyzegs\IndexNow\Support\SubmissionMode;
+
+$fake = IndexNow::fake();
+
+$post->update(['slug' => 'new']);
+
+$fake->assertSubmitted('/posts/new');
+$fake->assertSubmitted('https://example.com/posts/old', SubmissionMode::Defer);
+$fake->assertSubmitted(fn (array $urls, SubmissionMode $mode, ?int $delay) => count($urls) === 2);
+$fake->assertNotSubmitted('/drafts/1');
+$fake->assertSubmittedCount(1);
+$fake->assertNothingSubmitted();
+$fake->urls();          // every URL recorded
+$fake->submissions();   // every call: urls, mode, delay
+```
+
+The fake records what your code asked to submit, in any mode, regardless of
+`enabled`, the key or the host settings. It replaces the container binding as
+well as the facade, so injected instances resolved after `fake()` are faked too.
+
+## Upgrading from laravel-freelancer-nl/laravel-index-now
+
+This package started as a fork of
+[laravel-freelancer-nl/laravel-index-now](https://github.com/LaravelFreelancerNL/laravel-index-now)
+and was rewritten.
+
+- `composer remove laravel-freelancer-nl/laravel-index-now && composer require kyzegs/laravel-index-now`
+- Namespace `LaravelFreelancerNL\LaravelIndexNow` → `Kyzegs\IndexNow`; the facade is `Kyzegs\IndexNow\Facades\IndexNow`.
+- Republish the config. Keys are snake_case now: `key-location` → `key_location`, `search-engine` → `endpoints` (a list of full URLs), `log-failed-submits` → `log.skipped`, `delay` → `debounce` (default 0 instead of 600).
+- `INDEXNOW_PRODUCTION_ENV` → `INDEXNOW_ENABLED`.
+- `IndexNow::delaySubmission($urls, $seconds)` → `IndexNow::queue($urls, delay: $seconds)`.
+- `IndexNow::submit()` throws on a refused request, and returns a list of responses (`[]` when skipped) instead of `Response|false`.
+- `TooManyUrlsException` is gone: large lists are split into batches.
+- `index-now:generate-key` → `index-now:key`; it no longer writes the key file by default. Use `--file`, `index-now:publish-key` or the key route.
+- The single-URL GET request is gone; every submission is a JSON POST.
+
+## Development
 
 ```bash
 composer test
+composer analyse
+composer format
 ```
-
-## Changelog
-
-Please see [CHANGELOG](CHANGELOG.md) for more information on what has changed recently.
-
-## Contributing
-
-Please see [CONTRIBUTING](https://github.com/spatie/.github/blob/main/CONTRIBUTING.md) for details.
-
-## Security Vulnerabilities
-
-Please review [our security policy](../../security/policy) on how to report security vulnerabilities.
 
 ## Credits
 
-- [Bas](https://github.com/LaravelFreelancerNL)
-- [All Contributors](../../contributors)
+- [Sebastiaan](https://github.com/Kyzegs)
+- [Bas (LaravelFreelancerNL)](https://github.com/LaravelFreelancerNL), author of the original package
 
 ## License
 
-The MIT License (MIT). Please see [License File](LICENSE.md) for more information.
+MIT. See [LICENSE.md](LICENSE.md).

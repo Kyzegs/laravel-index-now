@@ -14,6 +14,12 @@ jobs:
             laravel: 11.*
             testbench: 9.*
             pestphp: 3.*
+            stability: prefer-lowest
+          - os: ubuntu-latest
+            php: 8.2
+            laravel: 11.*
+            testbench: 9.*
+            pestphp: 3.*
             stability: prefer-stable
           - os: ubuntu-latest
             php: 8.3
@@ -80,8 +86,8 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, fileinfo
-          coverage: xdebug
+          extensions: dom, curl, libxml, mbstring, zip, pdo, sqlite, pdo_sqlite, simplexml, zlib
+          coverage: none
 
       - name: Setup problem matchers
         run: |

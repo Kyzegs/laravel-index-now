@@ -1,14 +1,14 @@
 includes:
-    - phpstan-baseline.neon
+    - vendor/larastan/larastan/extension.neon
+    - vendor/phpstan/phpstan-deprecation-rules/rules.neon
 parameters:
-    level: 8
-    ignoreErrors:
-        - identifier: larastan.noEnvCallsOutsideOfConfig
+    level: max
     paths:
         - src
         - config
     tmpDir: build/phpstan
-    excludePaths:
-        - src/Commands/GenerateKeyCommand.php    # excluded because the facade triggers an internal phpstan error
-        - src/Jobs/IndexNowSubmitJob.php         # excluded because the facade triggers an internal phpstan error
-        - src/Facades/IndexNow.php
+    ignoreErrors:
+        - identifier: larastan.noEnvCallsOutsideOfConfig
+          path: config/index-now.php
+        - identifier: trait.unused
+          path: src/Concerns/InteractsWithIndexNow.php

@@ -23,12 +23,18 @@ jobs:
           php-version: 8.3
           extensions: mbstring, intl
           ini-values: post_max_size=256M, short_open_tag=On
-          coverage: none
+          coverage: pcov
           tools: composer:v2
 
       - name: Install dependencies
         run: |
           composer update --prefer-dist --no-interaction
+
+      - name: Check code style
+        run: vendor/bin/pint --test
+
+      - name: Test coverage
+        run: vendor/bin/pest --coverage --min=95
 
       - name: Run all QA checks
         if: ${{ always() }}
